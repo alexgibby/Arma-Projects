@@ -1,0 +1,138 @@
+	  			{ (gunner _x) addEventHandler ["FiredMan", {      
+					_executionHandle = _this spawn 
+					{      if (count prioritisedTargets > 0) then {
+							systemChat "Fired Script Running!";
+							diag_log format["Fire Event Handler Triggered %1", time ]; //%userprofile%\AppData\Local\Arma 3 is location of RPT file
+							_missile = _this select 6;    //object being fired
+							_target = prioritisedTargets select 0; //object at the start/priority of enemy air array
+							_currentPitch = 90;
+							_p= _currentPitch; 
+							_y =0;
+							_r=0;
+							_missile setVectorDirAndUp [[ sin _y * cos _p,cos _y * cos _p,sin _p],
+														[0,-sin _p,cos _p]];
+							sleep 1;    //simulate _missile coming out of launch vehicle and up
+							//_missileSpeed = ((speed _missile)/(60*60))*1000;
+							//systemChat format["Speed of missile = %1 ", (_missileSpeed)];		
+							private["_CommandGuidance"];
+							private ["_perframe"];						
+							if (alive _missile) 
+							then{							
+							systemChat "Trying to run perFrame Event Handler for extrapolated command guidance ";	
+							//diag_log diag_fps;
+							_CommandGuidance = 		//THE FRAME HANDLER REFERENCE TAG					
+							[{//Code to Run	
+							//diag_log diag_fps;
+							_params = _this select 0;
+							_missile = (_params select 0);
+							_target = (_params select 1);													
+							_currentPitch =(_params select 2);		
+							_currentTargetPosition = getPosASL _target;
+							_currentMissilePosition = getPosASL _missile;		
+							_TargetDir = getDir _target; 
+							_targetVelocity = velocity _target;
+							_missileVelocity= velocity _missile;
+							_targetXSpeed = (_targetVelocity select 0);//meters per second on the X/Y/Z Axis	
+							_targetYSpeed = (_targetVelocity select 1);
+							_targetZSpeed = (_targetVelocity select 2);
+							_calculatedSpeed = (vectorMagnitude _targetVelocity);					
+							_distanceBetween = (_currentMissilePosition distance _currentTargetPosition);
+							_missileSpeed = (vectorMagnitude _missileVelocity); //m/s
+							_distanceTime = _distanceBetween/_missileSpeed;//time taken to cover that distance
+							_airCraftDistance = _calculatedSpeed * _distanceTime;//distance covered by aircraft in the interceptionTime
+							_targetXDistance= _targetXSpeed * _distanceTime;  //Distance covered on each axis
+							_targetYDistance= _targetYSpeed * _distanceTime;
+							_targetZDistance= _targetZSpeed * _distanceTime;
+							_currentTargX= _currentTargetPosition select 0;
+							_currentTargY= _currentTargetPosition select 1;
+							_currentTargZ= _currentTargetPosition select 2;
+							_predictedPosition =_currentTargetPosition vectorAdd [_targetXDistance,_targetYDistance,_targetZDistance];
+							//[_currentTargX + _targetXDistance, _currentTargY + _targetYDistance, _currentTargZ + _targetZDistance];
+							_YawDir = [_missile, _predictedPosition] call BIS_fnc_dirTo; //Relative direction between the two vectors
+							_y = _YawDir;
+							_InterceptionPitch= 0; 
+							_predictedTargZ = (_predictedPosition select 2); 
+							_MissileZ = (_currentMissilePosition select 2);
+							_opposite = (_predictedTargZ - _MissileZ);   //opposite length (altitude difference)
+							_hypotenuse = _predictedPosition distance _currentMissilePosition; 	// work out distance hypotenuse 												
+							_InterceptionPitch= asin(_opposite/_hypotenuse);   //theta(pitch) = sin-1(opposite length/hypotenuse length)
+							_r = 0; //No need for roll on the missile
+							_p = _InterceptionPitch;
+							 _missile setVectorDirAndUp 
+							 [[ sin _y * cos _p,cos _y * cos _p,sin _p],
+							 [[sin _r,-sin _p,cos _r * cos _p],-_y]call BIS_fnc_rotateVector2D];   
+								_track = "Sign_Arrow_Large_F" createVehicle position _missile; // visualize _missile  path
+							}, 0, [_missile, _target, _currentPitch]] call CBA_fnc_addPerFrameHandler; 
+							//FrameHandler Params: Code, Delay, Args to pass in
+							_distanceBetween = (_missile distance _target);
+							 while {_distanceBetween>300} do
+								{
+								SystemChat format ["Distance between = %1", _distanceBetween];
+								  if (!(alive _missile)) then
+									  {
+									  [_CommandGuidance] call CBA_fnc_removePerFrameHandler;			
+									  };
+									  _distanceBetween = (_missile distance _target);
+							  }; 
+									if (_distanceBetween < 300) 
+									then{
+									
+									[_CommandGuidance] call CBA_fnc_removePerFrameHandler;									
+									systemChat "Trying to run perFrame Event Handler";
+									//diag_log "Active Radar Started";	
+									i= i+ 1;
+									_perframe =
+										[{								//Start frame updateCode.	
+										    //diag_log diag_fps;
+											
+											_params = _this select 0;
+											//systemChat format ["Params in array %1", (count _params)];
+											_missile = (_params select 0);
+											_target = (_params select 1);
+											_currentPitch =(_params select 2);
+											_HorizontalDir = [_missile, _target] call BIS_fnc_dirTo;    // set relative direction of _missile
+											_y = _HorizontalDir;// doesn't change the Up vector
+											_InterceptionPitch= 0;								
+											_relPosMisZ = ((getPosASL _missile) select 2);   
+											_relPosTargZ = ((aimPos _target) select 2);  
+											_relPosTargZ = (_relPosTargZ);  
+											_opposite = (_relPosTargZ - _relPosMisZ);   
+											_hypot = _target distance _missile;                    // work out distance hypotenuse angle  											
+											_InterceptionPitch= asin(_opposite / _hypot);    //inverse sin based on the opposite over hypotenuse angle (this gives the pitch)    				
+											_r = 0; //No roll required								
+											_pitchChange = ((_InterceptionPitch - _currentPitch)/2);// Pitch change as a fraction of whole angle to smoothen out change in up vector
+											_p= (_currentPitch +_pitchChange );
+											_p = _InterceptionPitch;
+											 _currentPitch = _currentPitch + _pitchChange;
+											 //diag_log format ["Pitch %1, Time: %2", _p, time];
+											 //diag_log format ["Direction Vector: %1", vectorDir _missile];
+											 _missile setVectorDirAndUp [
+											 [ sin _y * cos _p,cos _y * cos _p,sin _p],
+											 [[sin _r,-sin _p,cos _r * cos _p],-_y]call BIS_fnc_rotateVector2D
+											 ];   
+											_track = "Sign_Arrow_Large_Green_F" createVehicle position _missile;  // visualize _missile  path
+											if (_hypot<10) then{
+											_ammo= "HelicopterExploBig";
+											scriptedDetonation = _ammo createVehicle (getPos _missile);
+											scriptedDetonation setDamage 1;
+											_missile setDamage 1;
+											};				
+										}, 0, [_missile, _target, _currentPitch]] call CBA_fnc_addPerFrameHandler;	//Per Frame Handler 
+											};
+									  while {i>0} do
+									  {
+										  if (!(alive _missile)) then
+											  {
+											  i= i-1;
+											   systemChat format["Frame Handlers Still Running: %1", i];
+											   diag_log "_missile is no longer active perFrame handler removed";
+											  [_perframe] call CBA_fnc_removePerFrameHandler;			
+											  };
+										};
+								};
+							engagedTargets = engagedTargets - [_target];
+							};		
+						};								
+												
+		      }];
+			  }forEach connectedSAM;
